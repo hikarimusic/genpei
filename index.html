@@ -184,6 +184,7 @@
                 <div>
                     <h3>新しい戦を開始</h3>
                     <input type="text" id="gameName" placeholder="戦の名前">
+                    <input type="number" id="gameDuration" placeholder="戦の時間（分）" min="1" value="30">
                     <button onclick="startNewGame()">新しい戦を開始</button>
                 </div>
     
@@ -375,6 +376,13 @@
 
         async function startNewGame() {
             const gameName = document.getElementById('gameName').value;
+            const gameDuration = parseInt(document.getElementById('gameDuration').value) || 30; // Default to 30 if invalid
+            
+            if (gameDuration < 1) {
+                document.getElementById('adminError').textContent = '時間は1分以上に設定してください';
+                document.getElementById('adminError').style.display = 'block';
+                return;
+            }
             
             try {
                 // Get all players
@@ -387,13 +395,13 @@
                 const minamotoLeader = shuffled[0];
                 const tairaLeader = shuffled[1];
                 
-                // Create new game
+                // Create new game with custom duration
                 const { data: game, error } = await supabaseClient
                     .from('games')
                     .insert({
                         name: gameName,
                         status: 'in_progress',
-                        end_time: new Date(Date.now() + 30 * 60000).toISOString(),
+                        end_time: new Date(Date.now() + gameDuration * 60000).toISOString(), // Convert minutes to milliseconds
                         minamoto_leader: minamotoLeader.id,
                         taira_leader: tairaLeader.id
                     })
@@ -409,15 +417,15 @@
                     if (player.id === minamotoLeader.id) {
                         groupType = '源';
                         soldiers = 100;
-                        joinOrder = 1;  // First in Minamoto group
+                        joinOrder = 1;
                     } else if (player.id === tairaLeader.id) {
                         groupType = '平';
                         soldiers = 100;
-                        joinOrder = 1;  // First in Taira group
+                        joinOrder = 1;
                     } else {
                         groupType = '地';
                         soldiers = 10;
-                        joinOrder = 1000;  // No join order for neutral players
+                        joinOrder = 1000;
                     }
 
                     return {
