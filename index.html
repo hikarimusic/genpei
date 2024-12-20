@@ -1,0 +1,944 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>源平合戦</title>
+    <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+    <style>
+        body {
+            font-family: "Hiragino Kaku Gothic Pro", "メイリオ", sans-serif;
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        .game-status {
+            border: 1px solid #ddd;
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 4px;
+        }
+        .login-section {
+            margin-top: 20px;
+        }
+        input {
+            padding: 8px;
+            margin: 10px 0;
+            width: 100%;
+            box-sizing: border-box;
+        }
+        button {
+            padding: 10px 20px;
+            background-color: #4a4a4a;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+            transition: background-color 0.3s;
+        }
+        button:hover {
+            background-color: #2a2a2a;
+        }
+        .genji {
+            color: black;
+            background-color: #4a89dc;
+        }
+        .heike {
+            color: black;
+            background-color: #da4453;
+        }
+        .neutral {
+            background-color: #967adc;
+            color: black;
+        }
+        .error {
+            color: #da4453;
+            display: none;
+            padding: 10px;
+            background-color: #ffebee;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        .success {
+            color: #37bc9b;
+            display: none;
+            padding: 10px;
+            background-color: #e8f5e9;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        #privateSection, #adminSection, #warSection, #collaborationSection, #resultsSection {
+            display: none;
+        }
+        .timer {
+            font-size: 2em;
+            font-weight: bold;
+            text-align: center;
+            margin: 20px 0;
+            color: #4a4a4a;
+        }
+        .player-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+        .player-card {
+            border: 1px solid #ddd;
+            padding: 15px;
+            border-radius: 4px;
+            background-color: #f8f9fa;
+        }
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+            z-index: 1000;
+        }
+        .modal-content {
+            position: relative;
+            background-color: white;
+            margin: 15% auto;
+            padding: 20px;
+            border-radius: 8px;
+            max-width: 500px;
+            width: 90%;
+        }
+        .rankings {
+            margin-top: 20px;
+        }
+        .ranking-item {
+            padding: 10px;
+            margin: 5px 0;
+            border-radius: 4px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .admin-controls {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            margin-top: 20px;
+        }
+        
+        .current-war-status {
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 15px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div id="gameStatus" class="game-status">
+            <h1>源平合戦</h1>
+            <div id="currentGame"></div>
+            <div class="timer" id="timer"></div>
+        </div>
+
+        <div id="loginSection" class="login-section">
+            <h3>進入</h3>
+            <input type="password" id="accessKey" placeholder="輸入個人密碼">
+            <button onclick="login()">登入</button>
+            <div id="loginError" class="error">無効なキーです</div>
+        </div>
+
+        <div id="privateSection">
+            <h2>玩家情報</h2>
+            <div id="playerInfo" class="player-stats"></div>
+            <div class="war-section">
+                <h3>你的戰鬥碼:</h3>
+                <div id="myWarKey" style="font-family: monospace; padding: 10px; background: #f0f0f0; margin: 10px 0;"></div>
+                <h3>戰鬥開始</h3>
+                <input type="text" id="warKey" placeholder="請輸入對手的戰鬥碼">
+                <button onclick="initiateBattle()">戰鬥</button>
+            </div>
+        </div>
+
+        <div id="adminSection">
+            <h2>管理者ページ</h2>
+            
+            <div class="admin-controls">
+                <!-- New War Status Section -->
+                <div class="current-war-status" id="currentWarStatus">
+                    <h3>現在の戦争状況</h3>
+                    <div id="warStatusInfo"></div>
+                </div>
+    
+                <!-- New War Controls -->
+                <div>
+                    <h3>新しい戦を開始</h3>
+                    <input type="text" id="gameName" placeholder="戦の名前">
+                    <button onclick="startNewGame()">新しい戦を開始</button>
+                </div>
+    
+                <!-- End War Controls -->
+                <div>
+                    <h3>現在の戦を終了</h3>
+                    <button onclick="endCurrentWar()" id="endWarButton" disabled>戦を終了する</button>
+                </div>
+            </div>
+    
+            <div id="adminError" class="error"></div>
+            <div id="adminSuccess" class="success"></div>
+        </div>
+
+        <div id="resultsSection">
+            <h2>戦争結果</h2>
+            <div id="finalResults"></div>
+            <div id="rankings"></div>
+        </div>
+    </div>
+
+    <!-- Battle Modal -->
+    <div id="battleModal" class="modal">
+        <div class="modal-content">
+            <h2>戰鬥結果</h2>
+            <div id="battleResult"></div>
+            <button onclick="closeBattleModal()">關閉</button>
+        </div>
+    </div>
+
+    <!-- Collaboration Modal -->
+    <div id="collaborationModal" class="modal">
+        <div class="modal-content">
+            <h2>合作</h2>
+            <div id="collaborationInfo"></div>
+            <input type="number" id="soldiersToTransfer" min="0" placeholder="移動する兵力">
+            <button onclick="transferSoldiers()">移動兵力</button>
+            <button onclick="closeCollaborationModal()">關閉</button>
+        </div>
+    </div>
+
+    <script>
+        const ADMIN_KEY = 'admin123'; // Change this to your secure admin key
+        const supabaseClient = supabase.createClient(
+            'https://qugqdssojeflbhrwseii.supabase.co',
+            'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF1Z3Fkc3NvamVmbGJocndzZWlpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Mjc2MTc3MzAsImV4cCI6MjA0MzE5MzczMH0.UK3c6cNqbv5Q2ErudLJ2LIGfYblz5HZXnrdfvS0DBIQ'
+        );
+
+        let currentUser = null;
+        let currentGame = null;
+        let currentBattle = null;
+        let gameSubscription = null;
+        let gameStateSubscription = null;
+
+        // Initialize game
+        async function initialize() {
+            await updateGameStatus();
+            setupRealtimeSubscriptions();
+            if (document.getElementById('adminSection').style.display === 'block') {
+                await updateAdminWarStatus();
+            }
+        }
+
+        // Set up realtime subscriptions
+        function setupRealtimeSubscriptions() {
+            gameSubscription = supabaseClient
+                .channel('game_changes')
+                .on('postgres_changes', 
+                    { event: '*', schema: 'public', table: 'games' },
+                    handleGameUpdate
+                )
+                .subscribe();
+
+            gameStateSubscription = supabaseClient
+                .channel('game_state_changes')
+                .on('postgres_changes',
+                    { event: '*', schema: 'public', table: 'game_states' },
+                    handleGameStateUpdate
+                )
+                .subscribe();
+        }
+
+        // Update game status
+        async function updateGameStatus() {
+            const { data: game } = await supabaseClient
+                .from('games')
+                .select(`
+                    *,
+                    minamoto_leader:players!games_minamoto_leader_fkey(id, name),
+                    taira_leader:players!games_taira_leader_fkey(id, name)
+                `)
+                .eq('status', 'in_progress')
+                .single();
+
+            const gameStatus = document.getElementById('gameStatus');
+            const currentGameDiv = document.getElementById('currentGame');
+            const timerDiv = document.getElementById('timer');
+
+            if (game) {
+                currentGame = game;
+                currentGameDiv.innerHTML = `
+                    <h3>${game.name}</h3>
+                    <div>源頼朝: ${game.minamoto_leader.name}</div>
+                    <div>平清盛: ${game.taira_leader.name}</div>
+                `;
+                startTimer(game.end_time);
+                timerDiv.style.display = 'block';
+            } else {
+                currentGameDiv.innerHTML = `
+                    <div class="introduction" style="margin: 20px 0; line-height: 1.6;">
+                    <h2 style="color: #4a4a4a; margin-bottom: 15px;">遊戲說明</h2>
+                    
+                    <h3 style="color: #4a89dc; margin: 15px 0;">遊戲概述</h3>
+                    <p>源平合戦是一個多人戰略遊戲，源氏與平氏雙方競相收攏兵力，爭奪天下。</p>
+
+                    <h3 style="color: #4a89dc; margin: 15px 0;">遊戲流程</h3>
+                    <ul style="list-style: none; padding-left: 0;">
+                        <li style="margin: 10px 0;">• 遊戲開始時，將隨機選出兩名玩家分別擔任源賴朝（100兵）和平清盛（100兵）</li>
+                        <li style="margin: 10px 0;">• 其他玩家作為地方武士參與（初始10兵）</li>
+                        <li style="margin: 10px 0;">• 戰鬥勝利者可獲得戰敗者的兵力，戰敗者將加入勝利者陣營</li>
+                        <li style="margin: 10px 0;">• 同一陣營的玩家之間可以共享兵力</li>
+                    </ul>
+
+                    <h3 style="color: #4a89dc; margin: 15px 0;">勝利條件</h3>
+                    <ul style="list-style: none; padding-left: 0;">
+                        <li style="margin: 10px 0;">• 若大將（源賴朝/平清盛）戰敗，對方陣營立即獲勝</li>
+                        <li style="margin: 10px 0;">• 時限（30分鐘）到時，擁有較多人數的陣營獲勝</li>
+                    </ul>
+
+                    <h3 style="color: #4a89dc; margin: 15px 0;">排名規則</h3>
+                    <ul style="list-style: none; padding-left: 0;">
+                        <li style="margin: 10px 0;">• 勝利陣營：較早加入者排名較前</li>
+                        <li style="margin: 10px 0;">• 戰敗陣營：較早加入者排名較後</li>
+                    </ul>
+                </div>
+                `;
+                timerDiv.style.display = 'none';
+            }
+        }
+
+        statusCheckInterval = setInterval(checkGameStatus, 5000);
+
+        async function checkGameStatus() {
+            const { data: game } = await supabaseClient
+                .from('games')
+                .select('...')
+                .eq('id', currentGame.id)
+                .single();
+
+            if (game.status === 'finished' && (!currentGame.status || currentGame.status !== 'finished')) {
+                currentGame = game;
+                await endGame();
+                // Stop checking once finished
+                clearInterval(statusCheckInterval);
+            }
+        }
+
+        // Login function
+        async function login() {
+            const accessKey = document.getElementById('accessKey').value;
+            
+            if (accessKey === ADMIN_KEY) {
+                showAdminSection();
+                return;
+            }
+
+            try {
+                const { data: player, error } = await supabaseClient
+                    .from('players')
+                    .select('*')
+                    .eq('access_key', accessKey)
+                    .single();
+
+                if (error) throw error;
+
+                if (player) {
+                    currentUser = player;
+                    await showPrivateSection();
+                } else {
+                    document.getElementById('loginError').style.display = 'block';
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                document.getElementById('loginError').style.display = 'block';
+            }
+        }
+
+        // Start new game (admin function)
+
+        async function startNewGame() {
+            const gameName = document.getElementById('gameName').value;
+            
+            try {
+                // Get all players
+                const { data: players } = await supabaseClient
+                    .from('players')
+                    .select('*');
+                
+                // Randomly select leaders
+                const shuffled = players.sort(() => 0.5 - Math.random());
+                const minamotoLeader = shuffled[0];
+                const tairaLeader = shuffled[1];
+                
+                // Create new game
+                const { data: game, error } = await supabaseClient
+                    .from('games')
+                    .insert({
+                        name: gameName,
+                        status: 'in_progress',
+                        end_time: new Date(Date.now() + 30 * 60000).toISOString(),
+                        minamoto_leader: minamotoLeader.id,
+                        taira_leader: tairaLeader.id
+                    })
+                    .select()
+                    .single();
+
+                if (error) throw error;
+
+                // Initialize player states
+                const gameStates = players.map(player => {
+                    let groupType, soldiers, joinOrder;
+                    
+                    if (player.id === minamotoLeader.id) {
+                        groupType = '源';
+                        soldiers = 100;
+                        joinOrder = 1;  // First in Minamoto group
+                    } else if (player.id === tairaLeader.id) {
+                        groupType = '平';
+                        soldiers = 100;
+                        joinOrder = 1;  // First in Taira group
+                    } else {
+                        groupType = '地';
+                        soldiers = 10;
+                        joinOrder = 1000;  // No join order for neutral players
+                    }
+
+                    return {
+                        game_id: game.id,
+                        player_id: player.id,
+                        group_type: groupType,
+                        soldiers: soldiers,
+                        join_order: joinOrder,
+                        war_key: Math.random().toString(36).substring(2, 8)
+                    };
+                });
+
+                await supabaseClient
+                    .from('game_states')
+                    .insert(gameStates);
+
+                document.getElementById('adminSuccess').textContent = '新しい戦が開始されました';
+                document.getElementById('adminSuccess').style.display = 'block';
+                await updateAdminWarStatus();
+            } catch (error) {
+                console.error('Error:', error);
+                document.getElementById('adminError').textContent = 'エラーが発生しました';
+                document.getElementById('adminError').style.display = 'block';
+            }
+        }
+
+        // Battle initiation
+        async function initiateBattle() {
+            const opponentWarKey = document.getElementById('warKey').value;
+            
+            try {
+                const { data: opponentState } = await supabaseClient
+                    .from('game_states')
+                    .select('*, player:players(*)')
+                    .eq('war_key', opponentWarKey)
+                    .eq('game_id', currentGame.id)
+                    .single();
+
+                const { data: playerState } = await supabaseClient
+                    .from('game_states')
+                    .select('*, player:players(*)')
+                    .eq('game_id', currentGame.id)
+                    .eq('player_id', currentUser.id)
+                    .single();
+
+                if (playerState.group_type === opponentState.group_type) {
+                    showCollaboration(playerState, opponentState);
+                } else {
+                    executeBattle(playerState, opponentState);
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert('戦闘の開始に失敗しました');
+            }
+        }
+
+        // Execute battle
+        async function executeBattle(playerState, opponentState) {
+            const winner = playerState.soldiers > opponentState.soldiers ? playerState : opponentState;
+            const loser = playerState.soldiers > opponentState.soldiers ? opponentState : playerState;
+
+            try {
+                // Record battle
+                await supabaseClient
+                    .from('battles')
+                    .insert({
+                        game_id: currentGame.id,
+                        attacker_id: playerState.player_id,
+                        defender_id: opponentState.player_id,
+                        winner_id: winner.player_id,
+                        battle_type: 'war',
+                        soldiers_transferred: loser.soldiers
+                    });
+
+                // Check if loser is a leader
+                const isLoserLeader = currentGame.minamoto_leader.id === loser.player_id || 
+                                    currentGame.taira_leader.id === loser.player_id;
+
+                if (isLoserLeader) {
+                    // If a leader lost, their side loses immediately
+                    const loserGroup = currentGame.minamoto_leader.id === loser.player_id ? '源' : '平';
+                    const winnerGroup = loserGroup === '源' ? '平' : '源';
+                    
+                    // Update the game status
+                    const { data: updatedGame } = await supabaseClient
+                        .from('games')
+                        .update({ 
+                            status: 'finished',
+                            winner_group: winnerGroup  // Opposite of loser's group
+                        })
+                        .eq('id', currentGame.id)
+                        .select(`
+                            *,
+                            minamoto_leader:players!games_minamoto_leader_fkey(id, name),
+                            taira_leader:players!games_taira_leader_fkey(id, name)
+                        `)
+                        .single();
+                    
+                    // Update currentGame with fresh data
+                    currentGame = updatedGame;
+                    
+                    showBattleResult(winner, loser);
+                    await endGame();
+                    return;
+                }
+
+                // Get the current max join_order for winner's group
+                const { data: groupStates } = await supabaseClient
+                    .from('game_states')
+                    .select('join_order')
+                    .eq('game_id', currentGame.id)
+                    .eq('group_type', winner.group_type);
+
+                const maxJoinOrder = Math.max(...groupStates.map(state => state.join_order || 0));
+                
+                // Update winner state
+                await supabaseClient
+                    .from('game_states')
+                    .update({
+                        soldiers: winner.soldiers + loser.soldiers
+                    })
+                    .eq('id', winner.id);
+                
+                // Update loser state with new group and join order
+                await supabaseClient
+                    .from('game_states')
+                    .update({
+                        soldiers: 0,
+                        group_type: winner.group_type,
+                        join_order: maxJoinOrder + 1  // Set join_order to next available number in winner's group
+                    })
+                    .eq('id', loser.id);
+
+                showBattleResult(winner, loser);
+            } catch (error) {
+                console.error('Error:', error);
+                alert('戦闘の処理に失敗しました');
+            }
+        }
+
+        // Transfer soldiers (collaboration)
+        async function transferSoldiers() {
+            const amount = parseInt(document.getElementById('soldiersToTransfer').value);
+            
+            if (isNaN(amount) || amount < 0) {
+                alert('有効な数値を入力してください');
+                return;
+            }
+
+            try {
+                const { data: sender } = await supabaseClient
+                    .from('game_states')
+                    .update({
+                        soldiers: currentBattle.sender.soldiers - amount
+                    })
+                    .eq('id', currentBattle.sender.id)
+                    .select()
+                    .single();
+
+                const { data: receiver } = await supabaseClient
+                    .from('game_states')
+                    .update({
+                        soldiers: currentBattle.receiver.soldiers + amount
+                    })
+                    .eq('id', currentBattle.receiver.id)
+                    .select()
+                    .single();
+
+                await supabaseClient
+                    .from('battles')
+                    .insert({
+                        game_id: currentGame.id,
+                        attacker_id: currentBattle.sender.player_id,
+                        defender_id: currentBattle.receiver.player_id,
+                        battle_type: 'collaboration',
+                        soldiers_transferred: amount
+                    });
+
+                closeCollaborationModal();
+            } catch (error) {
+                console.error('Error:', error);
+                alert('兵力の移動に失敗しました');
+            }
+        }
+
+        // Admin functions
+        async function updateAdminWarStatus() {
+            try {
+                const { data: currentWar } = await supabaseClient
+                    .from('games')
+                    .select(`
+                        *,
+                        minamoto_leader:players!games_minamoto_leader_fkey(name),
+                        taira_leader:players!games_taira_leader_fkey(name)
+                    `)
+                    .eq('status', 'in_progress')
+                    .single();
+
+                const warStatusInfo = document.getElementById('warStatusInfo');
+                const endWarButton = document.getElementById('endWarButton');
+
+                if (currentWar) {
+                    warStatusInfo.innerHTML = `
+                        <p>進行中の戦: ${currentWar.name}</p>
+                        <p>源氏大将: ${currentWar.minamoto_leader.name}</p>
+                        <p>平氏大将: ${currentWar.taira_leader.name}</p>
+                        <p>開始時刻: ${new Date(currentWar.created_at).toLocaleString()}</p>
+                    `;
+                    endWarButton.disabled = false;
+                } else {
+                    warStatusInfo.innerHTML = '<p>現在進行中の戦はありません</p>';
+                    endWarButton.disabled = true;
+                }
+            } catch (error) {
+                console.error('Error updating war status:', error);
+            }
+        }
+
+        async function endCurrentWar() {
+            try {
+                const { data: currentWar, error: fetchError } = await supabaseClient
+                    .from('games')
+                    .select('id')
+                    .eq('status', 'in_progress')
+                    .single();
+
+                if (fetchError) throw fetchError;
+
+                const { error: updateError } = await supabaseClient
+                    .from('games')
+                    .update({ status: 'finished' })
+                    .eq('id', currentWar.id);
+
+                if (updateError) throw updateError;
+
+                document.getElementById('adminSuccess').textContent = '戦が終了されました';
+                document.getElementById('adminSuccess').style.display = 'block';
+                await updateAdminWarStatus();
+
+                // Trigger endGame to show results
+                await endGame();
+            } catch (error) {
+                console.error('Error ending war:', error);
+                document.getElementById('adminError').textContent = '戦の終了に失敗しました';
+                document.getElementById('adminError').style.display = 'block';
+            }
+        }
+
+        // Display functions
+        function updateGameDisplay(game) {
+            const gameStatus = document.getElementById('currentGame');
+            gameStatus.innerHTML = `
+                <h3>${game.name}</h3>
+                <div>源頼朝: ${game.minamoto_leader.name}</div>
+                <div>平清盛: ${game.taira_leader.name}</div>
+            `;
+        }
+
+        async function showPrivateSection() {
+            document.getElementById('loginSection').style.display = 'none';
+            document.getElementById('privateSection').style.display = 'block';
+            
+            // Get and display player state
+            const { data: state } = await supabaseClient
+                .from('game_states')
+                .select('*')
+                .eq('game_id', currentGame.id)
+                .eq('player_id', currentUser.id)
+                .single();
+
+            const playerInfo = document.getElementById('playerInfo');
+            playerInfo.innerHTML = `
+                <div class="player-card ${state.group_type === '源' ? 'genji' : 
+                                        state.group_type === '平' ? 'heike' : 'neutral'}">
+                    <h3>${currentUser.name}</h3>
+                    <div>所属: ${state.group_type}</div>
+                    <div>兵力: ${state.soldiers}</div>
+                </div>
+            `;
+
+            document.getElementById('myWarKey').textContent = state.war_key;
+        }
+
+        function showAdminSection() {
+            document.getElementById('loginSection').style.display = 'none';
+            document.getElementById('adminSection').style.display = 'block';
+            updateAdminWarStatus();
+        }
+
+        function showBattleResult(winner, loser) {
+            const battleModal = document.getElementById('battleModal');
+            const battleResult = document.getElementById('battleResult');
+            
+            battleResult.innerHTML = `
+                <div class="battle-animation">⚔️</div>
+                <h3>戰鬥結果</h3>
+                <p>${winner.player.name} 勝利！</p>
+                <p>獲得兵力: ${loser.soldiers}</p>
+            `;
+            
+            battleModal.style.display = 'block';
+        }
+
+        function showCollaboration(sender, receiver) {
+            currentBattle = { sender, receiver };
+            
+            const collaborationModal = document.getElementById('collaborationModal');
+            const collaborationInfo = document.getElementById('collaborationInfo');
+            
+            collaborationInfo.innerHTML = `
+                <p>與${receiver.player.name}合作</p>
+                <p>你的兵力: ${sender.soldiers}</p>
+                <p>對手の兵力: ${receiver.soldiers}</p>
+            `;
+            
+            collaborationModal.style.display = 'block';
+        }
+
+        function showGameResults(game, rankings) {
+            const resultsSection = document.getElementById('resultsSection');
+            const finalResults = document.getElementById('finalResults');
+            const rankingsDiv = document.getElementById('rankings');
+
+            finalResults.innerHTML = `
+                <h3>勝者: ${game.winner_group === '源' ? '源氏' : '平氏'}</h3>
+            `;
+
+            rankingsDiv.innerHTML = rankings.map(rank => `
+                <div class="ranking-item ${rank.group_type === '源' ? 'genji' : 
+                                        rank.group_type === '平' ? 'heike' : 'neutral'}">
+                    <span>${rank.rank}位: ${rank.player_name}</span>
+                    <span>兵力: ${rank.soldiers}</span>
+                </div>
+            `).join('');
+
+            resultsSection.style.display = 'block';
+            document.getElementById('privateSection').style.display = 'none';
+        }
+
+        // Timer functions
+        function startTimer(endTime) {
+            const timerElement = document.getElementById('timer');
+            
+            const timer = setInterval(() => {
+                const now = new Date().getTime();
+                const end = new Date(endTime).getTime();
+                const distance = end - now;
+
+                if (distance < 0) {
+                    clearInterval(timer);
+                    timerElement.innerHTML = "時間到";
+                    endGame();
+                    return;
+                }
+
+                const minutes = Math.floor(distance / (1000 * 60));
+                const seconds = Math.floor((distance % (1000 * 60)) / 1000);
+                timerElement.innerHTML = `剩餘時間: ${minutes}分 ${seconds}秒`;
+            }, 1000);
+        }
+
+        function cleanupGameChecks() {
+            if (statusCheckInterval) {
+                clearInterval(statusCheckInterval);
+                statusCheckInterval = null;
+            }
+        }
+
+        // Game end handling
+        async function endGame() {
+            if (!currentGame) return;
+
+            try {
+                // If game was ended by timer, get fresh game data first
+                if (!currentGame.winner_group) {
+                    const { data: freshGame } = await supabaseClient
+                        .from('games')
+                        .select(`
+                            *,
+                            minamoto_leader:players!games_minamoto_leader_fkey(id, name),
+                            taira_leader:players!games_taira_leader_fkey(id, name)
+                        `)
+                        .eq('id', currentGame.id)
+                        .single();
+                        
+                    currentGame = freshGame;
+                }
+
+                // Get all game states with player info
+                const { data: states } = await supabaseClient
+                    .from('game_states')
+                    .select(`
+                        *,
+                        player:players(name)
+                    `)
+                    .eq('game_id', currentGame.id);
+
+                // If winner_group is not set (time over case), determine winner by number of players
+                if (!currentGame.winner_group) {
+                    const minamotoCount = states.filter(state => state.group_type === '源').length;
+                    const tairaCount = states.filter(state => state.group_type === '平').length;
+                    const winnerGroup = minamotoCount > tairaCount ? '源' : '平';
+
+                    // Update game with winner
+                    const { data: updatedGame } = await supabaseClient
+                        .from('games')
+                        .update({ 
+                            status: 'finished',
+                            winner_group: winnerGroup
+                        })
+                        .eq('id', currentGame.id)
+                        .select(`
+                            *,
+                            minamoto_leader:players!games_minamoto_leader_fkey(id, name),
+                            taira_leader:players!games_taira_leader_fkey(id, name)
+                        `)
+                        .single();
+
+                    currentGame = updatedGame;
+                }
+
+                // Group states by their final group
+                const winningStates = states.filter(state => state.group_type === currentGame.winner_group);
+                const losingStates = states.filter(state => state.group_type !== currentGame.winner_group);
+
+                // Sort winning states by join_order (ascending - earlier joins get better ranks)
+                winningStates.sort((a, b) => (a.join_order || Infinity) - (b.join_order || Infinity));
+                
+                // Sort losing states by join_order (descending - earlier joins get worse ranks)
+                losingStates.sort((a, b) => (b.join_order || -Infinity) - (a.join_order || -Infinity));
+
+                // Combine into final rankings
+                const rankings = [
+                    // Winning team ranks from top
+                    ...winningStates.map((state, index) => ({
+                        ...state,
+                        rank: index + 1,
+                        player_name: state.player.name
+                    })),
+                    // Losing team ranks from bottom
+                    ...losingStates.map((state, index) => ({
+                        ...state,
+                        rank: winningStates.length + index + 1,
+                        player_name: state.player.name
+                    }))
+                ];
+
+                // Update game states with calculated ranks
+                for (const ranking of rankings) {
+                    await supabaseClient
+                        .from('game_states')
+                        .update({ rank: ranking.rank })
+                        .eq('id', ranking.id);
+                }
+
+                showGameResults({ winner_group: currentGame.winner_group }, rankings);
+            } catch (error) {
+                console.error('Error ending game:', error);
+            }
+        }
+
+        // Realtime update handlers
+        function handleGameUpdate(payload) {
+            const game = payload.new;
+            if (game.status === 'finished') {
+                endGame();
+            } else {
+                updateGameDisplay(game);
+            }
+        }
+
+        function handleGameStateUpdate(payload) {
+            if (currentUser && payload.new.player_id === currentUser.id) {
+                showPrivateSection();
+            }
+        }
+
+        // Modal control functions
+        function closeBattleModal() {
+            document.getElementById('battleModal').style.display = 'none';
+        }
+
+        function closeCollaborationModal() {
+            document.getElementById('collaborationModal').style.display = 'none';
+            currentBattle = null;
+        }
+
+        // Initialize the game
+        initialize();
+
+        // Handle Enter key in input fields
+        document.getElementById('accessKey').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                login();
+            }
+        });
+
+        document.getElementById('warKey').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                initiateBattle();
+            }
+        });
+
+        document.getElementById('soldiersToTransfer').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                transferSoldiers();
+            }
+        });
+
+        // Close modals when clicking outside
+        window.onclick = function(event) {
+            if (event.target.className === 'modal') {
+                event.target.style.display = 'none';
+                if (event.target.id === 'collaborationModal') { 
+                    currentBattle = null;
+                }
+            }
+        }
+
+        // Add cleanup on window unload
+        window.addEventListener('unload', cleanupGameChecks);
+    </script>
+</body>
+</html>
