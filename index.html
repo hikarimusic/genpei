@@ -599,6 +599,12 @@
                 return;
             }
 
+            // Add validation to check if transfer amount exceeds sender's soldiers
+            if (amount > currentBattle.sender.soldiers) {
+                alert('移動する兵力が現在の兵力を超えています');
+                return;
+            }
+
             try {
                 // Generate new war keys for both players
                 const senderNewWarKey = Math.random().toString(36).substring(2, 8);
