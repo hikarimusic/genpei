@@ -288,10 +288,11 @@
                         <li style="margin: 10px 0;">• 同一陣營的玩家之間可以共享兵力</li>
                     </ul>
 
-                    <h3 style="color: #4a89dc; margin: 15px 0;">勝利條件</h3>
+                    <h3 style="color: #4a89dc; margin: 15px 0;">排名規則</h3>
                     <ul style="list-style: none; padding-left: 0;">
-                        <li style="margin: 10px 0;">• 若大將（源賴朝/平清盛）戰敗，對方陣營立即獲勝</li>
-                        <li style="margin: 10px 0;">• 時限（30分鐘）到時，擁有較多人數的陣營獲勝</li>
+                        <li style="margin: 10px 0;">• 保持中立的地方武士排名最優先（按兵力多寡排序）</li>
+                        <li style="margin: 10px 0;">• 勝利陣營次之（較早加入者排名較前）</li>
+                        <li style="margin: 10px 0;">• 戰敗陣營最後（較早加入者排名較後）</li>
                     </ul>
 
                     <h3 style="color: #4a89dc; margin: 15px 0;">排名規則</h3>
@@ -905,9 +906,15 @@
                     currentGame = updatedGame;
                 }
 
-                // Group states by their final group
+                // Separate states into three groups: neutral, winning, and losing
+                const neutralStates = states.filter(state => state.group_type === '地');
                 const winningStates = states.filter(state => state.group_type === currentGame.winner_group);
-                const losingStates = states.filter(state => state.group_type !== currentGame.winner_group);
+                const losingStates = states.filter(state => 
+                    state.group_type !== currentGame.winner_group && state.group_type !== '地'
+                );
+
+                // Sort neutral states by soldiers (descending)
+                neutralStates.sort((a, b) => b.soldiers - a.soldiers);
 
                 // Sort winning states by join_order (ascending - earlier joins get better ranks)
                 winningStates.sort((a, b) => (a.join_order || Infinity) - (b.join_order || Infinity));
@@ -915,18 +922,24 @@
                 // Sort losing states by join_order (descending - earlier joins get worse ranks)
                 losingStates.sort((a, b) => (b.join_order || -Infinity) - (a.join_order || -Infinity));
 
-                // Combine into final rankings
+                // Combine into final rankings with neutral players at top
                 const rankings = [
-                    // Winning team ranks from top
-                    ...winningStates.map((state, index) => ({
+                    // Neutral team ranks first, sorted by soldier count
+                    ...neutralStates.map((state, index) => ({
                         ...state,
                         rank: index + 1,
                         player_name: state.player.name
                     })),
-                    // Losing team ranks from bottom
+                    // Winning team ranks next
+                    ...winningStates.map((state, index) => ({
+                        ...state,
+                        rank: neutralStates.length + index + 1,
+                        player_name: state.player.name
+                    })),
+                    // Losing team ranks last
                     ...losingStates.map((state, index) => ({
                         ...state,
-                        rank: winningStates.length + index + 1,
+                        rank: neutralStates.length + winningStates.length + index + 1,
                         player_name: state.player.name
                     }))
                 ];
