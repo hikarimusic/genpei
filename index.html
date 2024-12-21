@@ -227,7 +227,7 @@
     </div>
 
     <script>
-        const ADMIN_KEY = 'admin123'; // Change this to your secure admin key
+        const ADMIN_KEY = 'admin123';
         const supabaseClient = supabase.createClient(
             'https://qugqdssojeflbhrwseii.supabase.co',
             'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF1Z3Fkc3NvamVmbGJocndzZWlpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Mjc2MTc3MzAsImV4cCI6MjA0MzE5MzczMH0.UK3c6cNqbv5Q2ErudLJ2LIGfYblz5HZXnrdfvS0DBIQ'
@@ -242,29 +242,9 @@
         // Initialize game
         async function initialize() {
             await updateGameStatus();
-            setupRealtimeSubscriptions();
             if (document.getElementById('adminSection').style.display === 'block') {
                 await updateAdminWarStatus();
             }
-        }
-
-        // Set up realtime subscriptions
-        function setupRealtimeSubscriptions() {
-            gameSubscription = supabaseClient
-                .channel('game_changes')
-                .on('postgres_changes', 
-                    { event: '*', schema: 'public', table: 'games' },
-                    handleGameUpdate
-                )
-                .subscribe();
-
-            gameStateSubscription = supabaseClient
-                .channel('game_state_changes')
-                .on('postgres_changes',
-                    { event: '*', schema: 'public', table: 'game_states' },
-                    handleGameStateUpdate
-                )
-                .subscribe();
         }
 
         // Update game status
@@ -328,9 +308,14 @@
         statusCheckInterval = setInterval(checkGameStatus, 5000);
 
         async function checkGameStatus() {
+            // Check game status
             const { data: game } = await supabaseClient
                 .from('games')
-                .select('...')
+                .select(`
+                    *,
+                    minamoto_leader:players!games_minamoto_leader_fkey(id, name),
+                    taira_leader:players!games_taira_leader_fkey(id, name)
+                `)
                 .eq('id', currentGame.id)
                 .single();
 
@@ -339,6 +324,32 @@
                 await endGame();
                 // Stop checking once finished
                 clearInterval(statusCheckInterval);
+                return;
+            }
+
+            // If user is logged in, check their state
+            if (currentUser) {
+                const { data: newState } = await supabaseClient
+                    .from('game_states')
+                    .select('*, player:players(*)')
+                    .eq('game_id', currentGame.id)
+                    .eq('player_id', currentUser.id)
+                    .single();
+
+                // Update private section if state has changed
+                if (newState) {
+                    const playerInfo = document.getElementById('playerInfo');
+                    playerInfo.innerHTML = `
+                        <div class="player-card ${newState.group_type === '源' ? 'genji' : 
+                                                newState.group_type === '平' ? 'heike' : 'neutral'}">
+                            <h3>${currentUser.name}</h3>
+                            <div>所属: ${newState.group_type}</div>
+                            <div>兵力: ${newState.soldiers}</div>
+                        </div>
+                    `;
+
+                    document.getElementById('myWarKey').textContent = newState.war_key;
+                }
             }
         }
 
@@ -484,6 +495,10 @@
 
         // Execute battle
         async function executeBattle(playerState, opponentState) {
+            if (playerState.soldiers === opponentState.soldiers) {
+                showDrawBattleResult(playerState, opponentState);
+                return;
+            }
             const winner = playerState.soldiers > opponentState.soldiers ? playerState : opponentState;
             const loser = playerState.soldiers > opponentState.soldiers ? opponentState : playerState;
 
@@ -505,16 +520,15 @@
                                     currentGame.taira_leader.id === loser.player_id;
 
                 if (isLoserLeader) {
-                    // If a leader lost, their side loses immediately
+                    // Leader loss handling (same as before)
                     const loserGroup = currentGame.minamoto_leader.id === loser.player_id ? '源' : '平';
                     const winnerGroup = loserGroup === '源' ? '平' : '源';
                     
-                    // Update the game status
                     const { data: updatedGame } = await supabaseClient
                         .from('games')
                         .update({ 
                             status: 'finished',
-                            winner_group: winnerGroup  // Opposite of loser's group
+                            winner_group: winnerGroup
                         })
                         .eq('id', currentGame.id)
                         .select(`
@@ -524,9 +538,7 @@
                         `)
                         .single();
                     
-                    // Update currentGame with fresh data
                     currentGame = updatedGame;
-                    
                     showBattleResult(winner, loser);
                     await endGame();
                     return;
@@ -541,25 +553,37 @@
 
                 const maxJoinOrder = Math.max(...groupStates.map(state => state.join_order || 0));
                 
-                // Update winner state
+                // Generate new war keys for both players
+                const winnerNewWarKey = Math.random().toString(36).substring(2, 8);
+                const loserNewWarKey = Math.random().toString(36).substring(2, 8);
+
+                // Update winner state with new war key
                 await supabaseClient
                     .from('game_states')
                     .update({
-                        soldiers: winner.soldiers + loser.soldiers
+                        soldiers: winner.soldiers + loser.soldiers,
+                        war_key: winnerNewWarKey
                     })
                     .eq('id', winner.id);
                 
-                // Update loser state with new group and join order
+                // Update loser state with new group, join order, and war key
                 await supabaseClient
                     .from('game_states')
                     .update({
                         soldiers: 0,
                         group_type: winner.group_type,
-                        join_order: maxJoinOrder + 1  // Set join_order to next available number in winner's group
+                        join_order: maxJoinOrder + 1,
+                        war_key: loserNewWarKey
                     })
                     .eq('id', loser.id);
 
                 showBattleResult(winner, loser);
+                
+                // Update the displayed war key if current user was involved
+                if (currentUser.id === winner.player_id || currentUser.id === loser.player_id) {
+                    const newWarKey = currentUser.id === winner.player_id ? winnerNewWarKey : loserNewWarKey;
+                    document.getElementById('myWarKey').textContent = newWarKey;
+                }
             } catch (error) {
                 console.error('Error:', error);
                 alert('戦闘の処理に失敗しました');
@@ -576,10 +600,15 @@
             }
 
             try {
+                // Generate new war keys for both players
+                const senderNewWarKey = Math.random().toString(36).substring(2, 8);
+                const receiverNewWarKey = Math.random().toString(36).substring(2, 8);
+
                 const { data: sender } = await supabaseClient
                     .from('game_states')
                     .update({
-                        soldiers: currentBattle.sender.soldiers - amount
+                        soldiers: currentBattle.sender.soldiers - amount,
+                        war_key: senderNewWarKey
                     })
                     .eq('id', currentBattle.sender.id)
                     .select()
@@ -588,7 +617,8 @@
                 const { data: receiver } = await supabaseClient
                     .from('game_states')
                     .update({
-                        soldiers: currentBattle.receiver.soldiers + amount
+                        soldiers: currentBattle.receiver.soldiers + amount,
+                        war_key: receiverNewWarKey
                     })
                     .eq('id', currentBattle.receiver.id)
                     .select()
@@ -603,6 +633,11 @@
                         battle_type: 'collaboration',
                         soldiers_transferred: amount
                     });
+
+                // Update the displayed war key if current user was involved
+                if (currentUser.id === currentBattle.sender.player_id) {
+                    document.getElementById('myWarKey').textContent = senderNewWarKey;
+                }
 
                 closeCollaborationModal();
             } catch (error) {
@@ -724,6 +759,23 @@
                 <h3>戰鬥結果</h3>
                 <p>${winner.player.name} 勝利！</p>
                 <p>獲得兵力: ${loser.soldiers}</p>
+            `;
+            
+            battleModal.style.display = 'block';
+        }
+
+        // Add new function to show draw result
+        function showDrawBattleResult(player1, player2) {
+            const battleModal = document.getElementById('battleModal');
+            const battleResult = document.getElementById('battleResult');
+            
+            battleResult.innerHTML = `
+                <div class="battle-animation">⚔️</div>
+                <h3>戰鬥結果</h3>
+                <p>兵力相同！</p>
+                <p>${player1.player.name}: ${player1.soldiers} 兵</p>
+                <p>${player2.player.name}: ${player2.soldiers} 兵</p>
+                <p>勝負未分！</p>
             `;
             
             battleModal.style.display = 'block';
@@ -884,22 +936,6 @@
                 showGameResults({ winner_group: currentGame.winner_group }, rankings);
             } catch (error) {
                 console.error('Error ending game:', error);
-            }
-        }
-
-        // Realtime update handlers
-        function handleGameUpdate(payload) {
-            const game = payload.new;
-            if (game.status === 'finished') {
-                endGame();
-            } else {
-                updateGameDisplay(game);
-            }
-        }
-
-        function handleGameStateUpdate(payload) {
-            if (currentUser && payload.new.player_id === currentUser.id) {
-                showPrivateSection();
             }
         }
 
